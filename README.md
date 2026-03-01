@@ -40,8 +40,8 @@ try {
 
     // Encrypt the plaintext
     $ciphertext = Cryptex::encrypt($plaintext, $key, $salt);
-    // example result: 
-    // 4c406399a8830dbf670832b298980280d71bfb8cba53246ed45c9b6e6fc753bc100da3d10d4bf0d406d8afd18b8a5a79f44e50424ed0970914490706418c5725258e
+    // example result (base64url v1 envelope):
+    // ASf8r8WJw1wk8iVdZ46f2pW0W6A3Q-1f_Af95WSCWEMBqTwO1ATz5JblY74oe_2mlIuSMY4WbM-0rbxPGV4
 
     // Decrypt the ciphertext
     $result = Cryptex::decrypt($ciphertext, $key, $salt);
@@ -69,6 +69,19 @@ if (hash_equals($plaintext, $result)) {
 // The above example will output: Pass
 ```
 
+
+## Ciphertext format
+
+Cryptex now emits a versioned URL-safe Base64 payload from `encrypt()`:
+
+- `1-byte version` (`0x01`)
+- `salt` (`SODIUM_CRYPTO_PWHASH_SALTBYTES`)
+- `nonce` (`SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES`)
+- `ciphertext+tag`
+
+The final string is encoded with `sodium_bin2base64(..., SODIUM_BASE64_VARIANT_URLSAFE_NO_PADDING)`.
+
+For backward compatibility, `decrypt()` also accepts legacy hex payloads (`nonce|ciphertext+tag` hex encoded).
 
 # Testing
 
