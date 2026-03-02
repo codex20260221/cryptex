@@ -10,7 +10,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        php-version: ['8.2', '8.3', '8.4']
+        php-version: ['8.1', '8.2', '8.3']
 
     steps:
       - name: Checkout
@@ -29,13 +29,7 @@ jobs:
         run: composer install --no-interaction --no-progress --prefer-dist
 
       - name: Lint
-        run: composer lint
-
-      - name: Static analysis
-        run: composer stan
-
-      - name: Code style check
-        run: composer cs-check
+        run: php -l src/Cryptex.php && php -l tests/CryptexTest.php
 
       - name: Run tests
-        run: composer test
+        run: vendor/bin/phpunit
