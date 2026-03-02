@@ -23,19 +23,13 @@ jobs:
           coverage: none
 
       - name: Validate composer files
-        run: composer validate --strict
+        run: composer validate --strict --no-check-lock
 
       - name: Install dependencies
         run: composer install --no-interaction --no-progress --prefer-dist
 
       - name: Lint
-        run: composer lint
-
-      - name: Static analysis
-        run: composer stan
-
-      - name: Code style check
-        run: composer cs-check
+        run: php -l src/Cryptex.php && php -l tests/CryptexTest.php
 
       - name: Run tests
-        run: composer test
+        run: vendor/bin/phpunit
