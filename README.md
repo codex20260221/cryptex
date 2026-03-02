@@ -2,26 +2,24 @@
 
 # Cryptex: 2-way Authenticated Encryption Class
 
-Cryptex is a simple PHP class that performs 2-way authenticated encryption using XChaCha20 + Poly1305.
+Cryptex is a small PHP library for authenticated encryption with libsodium (`XChaCha20-Poly1305`).
 
+## Requirements
 
-# Requirements
+- PHP 8.2+
+- `ext-sodium`
 
-* PHP 8.1 or newer
+## Installation
 
+Install with Composer:
 
-# Installation
+```bash
+composer require michaelmawhinney/cryptex
+```
 
-The preferred method of installation is with Packagist and Composer. The following command installs the package and adds it as a requirement to your project's composer.json:
+You can also clone/download the repository and include `src/Cryptex.php` manually.
 
-`composer require michaelmawhinney/cryptex`
-
-You can also download or clone the repo and include the `src/Cryptex.php` manually if you prefer.
-
-
-# Usage
-
-**Always store or transmit your `$key` and `$salt` values securely.**
+## Quick start
 
 ```php
 <?php
@@ -29,77 +27,75 @@ require 'vendor/autoload.php';
 
 use cryptex\Cryptex;
 
-try {
+$plaintext = "You're a certified prince.";
+$passphrase = 'correct horse battery staple';
+$salt = Cryptex::generateSalt();
 
-    // Your private data and secret key
-    $plaintext = "You're a certified prince.";
-    $key = "1-2-3-4-5"; // same combination on my luggage
+$ciphertext = Cryptex::encrypt($plaintext, $passphrase, $salt);
+$decrypted = Cryptex::decrypt($ciphertext, $passphrase, '');
 
-    // Generate a secure random salt value
-    $salt = Cryptex::generateSalt();
-
-    // Encrypt the plaintext
-    $ciphertext = Cryptex::encrypt($plaintext, $key, $salt);
-    // example result (base64url v1 envelope):
-    // ASf8r8WJw1wk8iVdZ46f2pW0W6A3Q-1f_Af95WSCWEMBqTwO1ATz5JblY74oe_2mlIuSMY4WbM-0rbxPGV4
-
-    // Decrypt the ciphertext
-    $result = Cryptex::decrypt($ciphertext, $key, $salt);
-
-} catch (Exception $e) {
-
-    // There was some error during salt generation, encryption, authentication, or decryption
-    echo 'Caught exception: ' . $e->getMessage() . "\n";
-
-}
-
-// Verify with a timing attack safe string comparison
-if (hash_equals($plaintext, $result)) {
-
-    // Cryptex securely encrypted and decrypted the data
-    echo "Pass";
-
-} else {
-
-    // There was some failure that did not generate any exceptions
-    echo "Fail";
-
-}
-
-// The above example will output: Pass
+var_dump(hash_equals($plaintext, $decrypted)); // true
 ```
 
+## Recommended usage
 
-## Ciphertext format
+### A) Passphrase mode (salt embedded in ciphertext)
 
-Cryptex now emits a versioned URL-safe Base64 payload from `encrypt()`:
+Use a user-provided passphrase or high-entropy secret string. Generate a fresh salt per message with `Cryptex::generateSalt()` and pass it to `encrypt()`.
 
-- `1-byte version` (`0x01`)
-- `salt` (`SODIUM_CRYPTO_PWHASH_SALTBYTES`)
-- `nonce` (`SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES`)
-- `ciphertext+tag`
+For `v1` payloads, salt is embedded in the ciphertext envelope. `decrypt()` ignores the provided `$salt` for `v1`, so pass `''`.
 
-The final string is encoded with `sodium_bin2base64(..., SODIUM_BASE64_VARIANT_URLSAFE_NO_PADDING)`.
+```php
+$salt = Cryptex::generateSalt();
+$ciphertext = Cryptex::encrypt($message, $passphrase, $salt);
+$plaintext = Cryptex::decrypt($ciphertext, $passphrase, '');
+```
 
-For backward compatibility, `decrypt()` also accepts legacy hex payloads (`nonce|ciphertext+tag` hex encoded).
+### B) Optional AAD usage
 
-# Testing
+Cryptex v5 currently binds an empty AAD string internally for compatibility. If your threat model needs context binding (tenant IDs, record IDs, protocol metadata), keep this metadata stable and authenticated at the application layer, and plan migration to a future API variant that accepts explicit AAD.
 
-The PHPUnit test class is in `tests/CryptexTest.php`.
+See [docs/security.md](docs/security.md) for AAD guidance and caveats.
 
-If you installed Cryptex with Composer, you can run the following command in the top-level folder of this project to perform the unit tests:
+### Planned for v6: raw-key mode (not implemented in v5)
 
-`./vendor/bin/phpunit --bootstrap vendor/autoload.php tests`
+Direct raw-key API ergonomics are planned for a future major release. In v5, `encrypt()`/`decrypt()` accept a `string $key` input and derive encryption material through the configured KDF path.
 
-If `phpunit` is already installed on your local system, you can run this command instead:
+## Ciphertext formats
 
-`phpunit tests`
+Cryptex supports a versioned base64url envelope for current payloads, plus a legacy hex decoder path:
 
+- `v1` base64url envelope (current)
+- `v2` planned/reserved (not implemented yet)
+- legacy hex (`nonce || ciphertext+tag`, hex encoded)
 
-# Generating Documentation
+Salt behavior during decryption:
 
-Cryptex uses phpDocumentor to automatically generate documentation whenever changes are made. The generated documentation is [available online here](https://michaelmawhinney.github.io/cryptex/). However if you want to generate the documentation locally, you can run the following command in the top-level folder of this project (requires docker):
+- `v1`: embedded salt is used; passed `$salt` argument is ignored (pass `''`).
+- legacy hex: no embedded salt; caller must provide the original external salt.
 
-`docker run --rm -v "$(pwd):/data" "phpdoc/phpdoc:3" -d src,tests -t docs`
+See [docs/format.md](docs/format.md) for field layout, sizes, and versioning rules.
 
-If you want to use another method of running/installing phpdoc, refer to the [phpDocumentor documentation](https://www.phpdoc.org/).
+## Security notes
+
+- Use unique salts and nonces per encryption operation (Cryptex handles nonce generation).
+- Authentication failures indicate tampering, wrong key, wrong passphrase, or corrupt payload.
+- Do not treat decrypted plaintext as trusted unless decryption succeeded without exception.
+- Store secrets in a dedicated secret manager where possible.
+
+See [docs/security.md](docs/security.md) for the full threat model and key-management guidance.
+
+## Testing
+
+```bash
+composer test
+```
+
+Additional project commands:
+
+```bash
+composer lint
+composer stan
+composer cs-check
+composer cs-fix
+```
