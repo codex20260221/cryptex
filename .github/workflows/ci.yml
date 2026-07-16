@@ -6,6 +6,9 @@ on:
     branches:
       - main
 
+permissions:
+  contents: read
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -15,21 +18,35 @@ jobs:
         php-version: ['8.3', '8.4', '8.5']
 
     steps:
-      - uses: actions/checkout@v6
+      - name: Checkout repository
+        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10 # v6.0.3
+        with:
+          persist-credentials: false
 
-      - uses: shivammathur/setup-php@v2
+      - name: Set up PHP
+        uses: shivammathur/setup-php@f3e473d116dcccaddc5834248c87452386958240 # 2.37.2
         with:
           php-version: ${{ matrix.php-version }}
           extensions: sodium
           coverage: none
 
-      - uses: ramsey/composer-install@v4
-
       - name: Validate composer files
-        run: composer validate
+        run: composer validate --strict
+
+      - name: Audit locked dependencies
+        run: composer audit --locked
+
+      - name: Install dependencies
+        uses: ramsey/composer-install@65e4f84970763564f46a70b8a54b90d033b3bdda # 4.0.0
 
       - name: Lint PHP files
         run: composer lint
+
+      - name: Check coding style
+        run: composer cs-check
+
+      - name: Run static analysis
+        run: composer stan
 
       - name: Run PHPUnit
         run: composer test
