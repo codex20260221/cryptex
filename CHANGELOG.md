@@ -16,7 +16,7 @@
 
 ### Compatibility
 
-- Preserves the public API, namespaces, exception behavior, v4/v5 hexadecimal ciphertext format, external salts, and fixed v4-format compatibility fixture decryption.
+- Preserves the public API, namespaces, exception behavior, v4/v5 hexadecimal ciphertext format, external salts, and decryption of the fixed v4-format compatibility fixture.
 - Does not add a ciphertext-size limit; applications should enforce suitable limits on untrusted input.
 
 ## [5.0.0] - 2026-05-08
