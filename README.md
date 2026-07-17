@@ -1,10 +1,16 @@
 <img src="https://michaelmawhinney.com/cryptex/logo.gif" width="300" alt="Cryptex">
 
-# Cryptex: authenticated symmetric encryption
+# Cryptex
 
-Cryptex is a small PHP library for authenticated encryption using XChaCha20-Poly1305 and Argon2id from PHP's Sodium extension.
+Cryptex is a small PHP library for authenticated symmetric encryption using XChaCha20-Poly1305 and Argon2id through PHP's Sodium extension.
 
-Version 5 preserves the v4 public API, hex ciphertext format, and external-salt behavior. Existing v4-style ciphertext remains decryptable with the same key and salt.
+## Features
+
+- Encrypts and authenticates plaintext with libsodium's XChaCha20-Poly1305 implementation.
+- Derives an encryption key from caller-supplied key material and a salt with Argon2id.
+- Uses a fresh random nonce for every encryption, so encrypting the same plaintext twice produces different ciphertext.
+- Fails closed: tampered data, a wrong key, or a wrong salt cannot produce unauthenticated plaintext.
+- Provides a small API: `Cryptex::encrypt()`, `Cryptex::decrypt()`, and `Cryptex::generateSalt()`.
 
 ## Requirements
 
@@ -13,17 +19,15 @@ Version 5 preserves the v4 public API, hex ciphertext format, and external-salt 
 
 ## Installation
 
-Install the package with Composer:
+Install Cryptex with Composer:
 
 ```console
 composer require michaelmawhinney/cryptex
 ```
 
-Composer autoloading is recommended. If Composer is unavailable, `src/Cryptex.php` can still be required directly; it loads the public exception classes it needs.
+## Quick start
 
-## Usage
-
-Generate random key material once and store it in a secret manager or another protected location. Generate and retain the external salt for each encrypted value because the salt is required for decryption.
+Generate key material once, keep it protected, and retain the salt used for each ciphertext.
 
 ```php
 <?php
@@ -34,76 +38,54 @@ require 'vendor/autoload.php';
 
 use cryptex\Cryptex;
 
-$plaintext = "You're a certified prince.";
-
-// Generate once, store securely, and reuse for decryption.
+// Generate this once and store it in a secret manager or equivalent protected store.
 $key = sodium_bin2hex(
     random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES)
 );
 
-// Store this salt with the ciphertext; it is not embedded in the output.
+$plaintext = "You're a certified prince.";
 $salt = Cryptex::generateSalt();
 $ciphertext = Cryptex::encrypt($plaintext, $key, $salt);
 $decrypted = Cryptex::decrypt($ciphertext, $key, $salt);
 
 if (!hash_equals($plaintext, $decrypted)) {
-    throw new RuntimeException('Round trip failed');
+    throw new RuntimeException('Round trip failed.');
 }
 ```
 
-Do not generate a new key or salt when decrypting stored ciphertext. Retrieve the exact values used during encryption.
+Decryption requires the exact same key and salt used for encryption. Store the salt with its ciphertext; it is not embedded in the encrypted output.
 
-### Random keys and human passphrases
+## Key and salt handling
 
-Cryptex processes the supplied `$key` through Argon2id whether it contains random key material or a human passphrase. High-entropy random key material is preferred when the application can generate and store it safely.
+Prefer high-entropy random key material when your application can generate and protect it. Cryptex also accepts passphrases and derives a key with Argon2id, but Argon2id does not add entropy: weak or reused passphrases remain vulnerable to guessing. Passphrase quality, key rotation, and secret storage are application responsibilities.
 
-Argon2id makes passphrase guessing more expensive, but it does not add entropy or make a weak passphrase strong. Password policy, passphrase quality, key rotation, and secure key storage are caller responsibilities. This release deliberately does not reject previously accepted key strings.
+`Cryptex::generateSalt()` returns a random salt of `SODIUM_CRYPTO_PWHASH_SALTBYTES` bytes. A salt is not secret, but its exact bytes must be retained and supplied at decryption. Generate a new salt for each encrypted value in normal use. If a storage system only accepts text, encode the salt for storage and decode it before calling Cryptex.
 
-### Salt handling
+## Error handling
 
-`Cryptex::generateSalt()` returns `SODIUM_CRYPTO_PWHASH_SALTBYTES` random bytes. The salt is not a secret, but it must be stored without alteration and supplied again for decryption. A newly generated salt should normally be retained alongside each ciphertext.
+Encryption and decryption can fail, so handle exceptions at the appropriate application boundary. Authentication failures, including modified ciphertext, nonce, or tag, and a wrong key or salt, cause `Cryptex::decrypt()` to throw `cryptex\DecryptionException`; it never returns unverified plaintext.
 
-### Ciphertext format and compatibility
+Cryptex also exposes `EncryptionException`, `EncodingException`, `NonceLengthException`, and `SaltLengthException`. Invalid hexadecimal input or an underlying Sodium operation can raise `SodiumException`; malformed or untrusted input should always be treated as a failed decryption attempt.
 
-`encrypt()` returns lowercase hexadecimal encoding of:
+For strict scalar argument enforcement, add `declare(strict_types=1);` to the application file that calls Cryptex, as shown above.
 
-```text
-24-byte nonce || ciphertext || 16-byte authentication tag
-```
+## Security considerations and limitations
 
-The salt is external and is not included in the ciphertext. The minimum decoded payload is 40 bytes (80 hexadecimal characters), representing an empty plaintext. v4 and v5 use this same unversioned format. Authentication failure, including a modified nonce, ciphertext, tag, wrong key, or wrong salt, throws `cryptex\DecryptionException` and never returns plaintext.
+Cryptex provides confidentiality and integrity for data encrypted with a protected key. It does not provide key storage, secret management, password policy, protection for a compromised host, or protection after an attacker obtains your application's secrets.
 
-A future major version may introduce a versioned envelope or additional authenticated data (AAD), but neither is part of the current API.
+Keep keys out of source control, logs, and client-visible storage. Store ciphertext and its associated salt together, but store keys separately in a suitable secret manager or protected configuration system. Never log plaintext or key material. Avoid logging ciphertext, salts, and nonces unless they are genuinely needed for operations and protected by an appropriate retention and access policy.
 
-### Strict scalar types
+The ciphertext is hexadecimal text containing the generated nonce and authenticated encrypted payload; the salt is external. Applications that accept untrusted ciphertext should set request and field-size limits appropriate to their resource budget before calling `decrypt()`.
 
-PHP decides scalar argument coercion from the file that calls a function, not from the file that declares it. Cryptex declares strict types internally, but callers that require strict scalar enforcement should also begin their PHP files with:
+## Compatibility
 
-```php
-declare(strict_types=1);
-```
+`decrypt()` supports the established v4-style hexadecimal ciphertext format when used with the same key and external salt. The format is not self-versioned, and the current API does not use embedded salts or additional authenticated data. See [RELEASE_NOTES.md](RELEASE_NOTES.md) for compatibility details and [CHANGELOG.md](CHANGELOG.md) for version history.
 
-### Untrusted input and payload limits
+## Development and documentation
 
-Cryptex rejects invalid salt lengths, malformed hex, and decoded payloads that are too short before running Argon2id. It intentionally does not impose an arbitrary maximum ciphertext size because doing so would change the existing API.
+The generated [API documentation](https://michaelmawhinney.github.io/cryptex/) describes the public classes and methods. Release history and migration context are in [CHANGELOG.md](CHANGELOG.md) and [RELEASE_NOTES.md](RELEASE_NOTES.md).
 
-Applications accepting untrusted input should enforce suitable HTTP request, field, and ciphertext-size limits before calling `decrypt()`. Choose limits from the application's maximum expected plaintext size and resource budget so oversized input cannot consume unbounded decoding memory or request time.
-
-## Exceptions
-
-The public exception classes are PSR-4 autoloadable under the `cryptex\` namespace:
-
-- `EncryptionException`
-- `EncodingException`
-- `NonceLengthException`
-- `DecryptionException`
-- `SaltLengthException`
-
-Their names and existing inheritance hierarchy remain compatible with v4 and v5.
-
-## Development checks
-
-Run the following commands from the repository root:
+From the repository root, the available development checks are:
 
 ```console
 composer validate --strict
@@ -114,14 +96,6 @@ composer stan
 composer test
 ```
 
-## Release notes
+## License
 
-See [CHANGELOG.md](CHANGELOG.md) and [RELEASE_NOTES.md](RELEASE_NOTES.md) for release and compatibility notes.
-
-## Generating documentation
-
-The API documentation is generated with phpDocumentor and published at <https://michaelmawhinney.github.io/cryptex/>. To generate it locally with Docker:
-
-```console
-docker run --rm -v "$(pwd):/data" phpdoc/phpdoc:3 -d src,tests -t docs
-```
+Cryptex is released under the [MIT License](LICENSE).

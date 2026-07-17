@@ -311,6 +311,10 @@ Examples must be correct and copy-pasteable.
 
 Do not include toy secrets in examples without clearly marking them as examples.
 
+### README maintenance
+
+The README is a stable, user-facing project overview. Put release-specific changes in the changelog or release notes, and do not automatically turn task-specific findings into top-level README sections. Integrate README edits into its overall information hierarchy rather than appending them around the latest task; link detailed implementation internals to API documentation where possible.
+
 ## Performance guidance
 
 This library should be efficient but not at the expense of security.
