@@ -20,7 +20,7 @@ final class CryptexTest extends TestCase
 
     protected function setUp(): void
     {
-        $this->key = '1-2-3-4-5';
+        $this->key = 'test-only-key-material';
         $this->salt = Cryptex::generateSalt();
         $this->plaintext = "You're a certified prince.";
         $this->ciphertext = Cryptex::encrypt($this->plaintext, $this->key, $this->salt);
@@ -78,9 +78,31 @@ final class CryptexTest extends TestCase
         Cryptex::decrypt($this->ciphertext, $this->key, Cryptex::generateSalt());
     }
 
+    public function testDecryptRejectsTamperedNonce(): void
+    {
+        $tamperedCiphertext = $this->flipDecodedByte($this->ciphertext, 0);
+
+        $this->expectException(DecryptionException::class);
+
+        Cryptex::decrypt($tamperedCiphertext, $this->key, $this->salt);
+    }
+
     public function testDecryptRejectsTamperedCiphertext(): void
     {
-        $tamperedCiphertext = $this->flipLastHexNibble($this->ciphertext);
+        $tamperedCiphertext = $this->flipDecodedByte(
+            $this->ciphertext,
+            SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_NPUBBYTES
+        );
+
+        $this->expectException(DecryptionException::class);
+
+        Cryptex::decrypt($tamperedCiphertext, $this->key, $this->salt);
+    }
+
+    public function testDecryptRejectsTamperedAuthenticationTag(): void
+    {
+        $decodedLength = strlen(sodium_hex2bin($this->ciphertext));
+        $tamperedCiphertext = $this->flipDecodedByte($this->ciphertext, $decodedLength - 1);
 
         $this->expectException(DecryptionException::class);
 
@@ -92,6 +114,20 @@ final class CryptexTest extends TestCase
         $this->expectException(SodiumException::class);
 
         Cryptex::decrypt('invalid ciphertext', $this->key, $this->salt);
+    }
+
+    public function testDecryptRejectsOddLengthHexCiphertext(): void
+    {
+        $this->expectException(SodiumException::class);
+
+        Cryptex::decrypt('abc', $this->key, $this->salt);
+    }
+
+    public function testDecryptValidatesSaltBeforeCiphertext(): void
+    {
+        $this->expectException(SaltLengthException::class);
+
+        Cryptex::decrypt('invalid ciphertext', $this->key, 'short');
     }
 
     public function testDecryptRejectsTooShortPayload(): void
@@ -152,8 +188,21 @@ final class CryptexTest extends TestCase
         $this->assertSame($plaintext, Cryptex::decrypt($ciphertext, $this->key, $this->salt));
     }
 
+    public function testDecryptsFixedLegacyV4Ciphertext(): void
+    {
+        // Pre-generated v4-format fixture; this test must not call encrypt().
+        $salt = sodium_hex2bin('000102030405060708090a0b0c0d0e0f');
+        $key = 'legacy-v4-fixture-passphrase';
+        $ciphertext = '101112131415161718191a1b1c1d1e1f2021222324252627'
+            . '10c5138293480a1f0baff8559cc7df6ae15d86183676a72a83b7da8b996f66c04aa46fa59961d597b117f41b0ab6d008';
+
+        $plaintext = Cryptex::decrypt($ciphertext, $key, $salt);
+
+        $this->assertSame('Cryptex v4 compatibility fixture', $plaintext);
+    }
+
     #[DataProvider('invalidPlaintextProvider')]
-    public function testEncryptRejectsInvalidPlaintextTypes($plaintext): void
+    public function testEncryptRejectsInvalidPlaintextTypes(mixed $plaintext): void
     {
         $this->expectException(\TypeError::class);
 
@@ -161,7 +210,7 @@ final class CryptexTest extends TestCase
     }
 
     #[DataProvider('invalidCiphertextProvider')]
-    public function testDecryptRejectsInvalidCiphertextTypes($ciphertext): void
+    public function testDecryptRejectsInvalidCiphertextTypes(mixed $ciphertext): void
     {
         $this->expectException(\TypeError::class);
 
@@ -169,7 +218,7 @@ final class CryptexTest extends TestCase
     }
 
     #[DataProvider('invalidKeyProvider')]
-    public function testEncryptRejectsInvalidKeyTypes($key): void
+    public function testEncryptRejectsInvalidKeyTypes(mixed $key): void
     {
         $this->expectException(\TypeError::class);
 
@@ -177,7 +226,7 @@ final class CryptexTest extends TestCase
     }
 
     #[DataProvider('invalidKeyProvider')]
-    public function testDecryptRejectsInvalidKeyTypes($key): void
+    public function testDecryptRejectsInvalidKeyTypes(mixed $key): void
     {
         $this->expectException(\TypeError::class);
 
@@ -185,7 +234,7 @@ final class CryptexTest extends TestCase
     }
 
     #[DataProvider('invalidSaltTypeProvider')]
-    public function testEncryptRejectsInvalidSaltTypes($salt): void
+    public function testEncryptRejectsInvalidSaltTypes(mixed $salt): void
     {
         $this->expectException(\TypeError::class);
 
@@ -193,13 +242,14 @@ final class CryptexTest extends TestCase
     }
 
     #[DataProvider('invalidSaltTypeProvider')]
-    public function testDecryptRejectsInvalidSaltTypes($salt): void
+    public function testDecryptRejectsInvalidSaltTypes(mixed $salt): void
     {
         $this->expectException(\TypeError::class);
 
         Cryptex::decrypt($this->ciphertext, $this->key, $salt);
     }
 
+    /** @return array<string, array{mixed}> */
     public static function invalidPlaintextProvider(): array
     {
         return [
@@ -209,6 +259,7 @@ final class CryptexTest extends TestCase
         ];
     }
 
+    /** @return array<string, array{mixed}> */
     public static function invalidCiphertextProvider(): array
     {
         return [
@@ -218,6 +269,7 @@ final class CryptexTest extends TestCase
         ];
     }
 
+    /** @return array<string, array{mixed}> */
     public static function invalidKeyProvider(): array
     {
         return [
@@ -227,6 +279,7 @@ final class CryptexTest extends TestCase
         ];
     }
 
+    /** @return array<string, array{mixed}> */
     public static function invalidSaltTypeProvider(): array
     {
         return [
@@ -236,6 +289,7 @@ final class CryptexTest extends TestCase
         ];
     }
 
+    /** @return array<string, array{string}> */
     public static function invalidSaltLengthProvider(): array
     {
         return [
@@ -245,11 +299,11 @@ final class CryptexTest extends TestCase
         ];
     }
 
-    private function flipLastHexNibble(string $hex): string
+    private function flipDecodedByte(string $hex, int $offset): string
     {
-        $lastNibble = substr($hex, -1);
-        $replacement = $lastNibble === '0' ? '1' : '0';
+        $decoded = sodium_hex2bin($hex);
+        $decoded[$offset] = chr(ord($decoded[$offset]) ^ 1);
 
-        return substr($hex, 0, -1) . $replacement;
+        return sodium_bin2hex($decoded);
     }
 }

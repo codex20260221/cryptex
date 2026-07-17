@@ -1,5 +1,24 @@
 # Changelog
 
+## [Unreleased]
+
+### Security
+
+- Rejects invalid salt lengths, malformed hexadecimal ciphertext, and decoded payloads that are too short before running Argon2id during decryption.
+- Adds explicit regression coverage for nonce, ciphertext, and authentication-tag tampering.
+
+### Changed
+
+- Makes every public exception class independently PSR-4 autoloadable while preserving its name and inheritance.
+- Adds a fixed v4 ciphertext compatibility fixture.
+- Adds PHPStan, PHP_CodeSniffer, dependency auditing, and the corresponding CI checks.
+- Removes the documentation branch force-push and deploys GitHub Pages from an artifact with least-privilege job permissions.
+
+### Compatibility
+
+- Preserves the public API, namespaces, exception behavior, v4/v5 hexadecimal ciphertext format, external salts, and decryption of the fixed v4-format compatibility fixture.
+- Does not add a ciphertext-size limit; applications should enforce suitable limits on untrusted input.
+
 ## [5.0.0] - 2026-05-08
 
 Cryptex 5.0.0 is a modernization and hardening release. It raises the supported runtime floor while preserving the existing cryptographic behavior and public API.

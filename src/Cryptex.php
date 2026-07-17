@@ -4,6 +4,12 @@ declare(strict_types=1);
 
 namespace cryptex;
 
+require_once __DIR__ . '/EncryptionException.php';
+require_once __DIR__ . '/EncodingException.php';
+require_once __DIR__ . '/NonceLengthException.php';
+require_once __DIR__ . '/DecryptionException.php';
+require_once __DIR__ . '/SaltLengthException.php';
+
 /**
  * Authenticated encryption with XChaCha20-Poly1305.
  *
@@ -25,7 +31,6 @@ final class Cryptex
      * @param string $key Passphrase or key material.
      * @param string $salt Salt of length SODIUM_CRYPTO_PWHASH_SALTBYTES.
      * @return string Hex-encoded nonce and ciphertext.
-     * @throws EncryptionException If encryption fails.
      * @throws SaltLengthException If the salt length is invalid.
      * @throws \Random\RandomException If nonce generation fails.
      * @throws \SodiumException If key derivation or encryption fails.
@@ -34,6 +39,7 @@ final class Cryptex
     {
         $derivedKey = '';
         try {
+            self::assertValidSaltLength($salt);
             $derivedKey = self::generateDerivedKey($key, $salt);
             $nonce = random_bytes(self::NONCE_LENGTH);
             $encryptedPayload = sodium_crypto_aead_xchacha20poly1305_ietf_encrypt(
@@ -42,10 +48,6 @@ final class Cryptex
                 $nonce,
                 $derivedKey
             );
-
-            if ($encryptedPayload === false) {
-                throw new EncryptionException('Failed to encrypt the data');
-            }
 
             return sodium_bin2hex($nonce . $encryptedPayload);
         } finally {
@@ -69,13 +71,14 @@ final class Cryptex
     {
         $derivedKey = '';
         try {
-            $derivedKey = self::generateDerivedKey($key, $salt);
+            self::assertValidSaltLength($salt);
             $decodedPayload = sodium_hex2bin($ciphertext);
 
             if (strlen($decodedPayload) < self::MINIMUM_DECODED_PAYLOAD_LENGTH) {
                 throw new NonceLengthException('Decoded data is shorter than the minimum payload length');
             }
 
+            $derivedKey = self::generateDerivedKey($key, $salt);
             $nonce = substr($decodedPayload, 0, self::NONCE_LENGTH);
             $encryptedPayload = substr($decodedPayload, self::NONCE_LENGTH);
 
@@ -113,13 +116,10 @@ final class Cryptex
      * @param string $key Passphrase or key material.
      * @param string $salt Salt value of length SODIUM_CRYPTO_PWHASH_SALTBYTES.
      * @return string Derived binary key.
-     * @throws SaltLengthException If the salt is not the expected length.
      * @throws \SodiumException If key derivation fails.
      */
     private static function generateDerivedKey(string $key, string $salt): string
     {
-        self::assertValidSaltLength($salt);
-
         return sodium_crypto_pwhash(
             \SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES,
             $key,
@@ -138,27 +138,12 @@ final class Cryptex
         }
     }
 
-    private static function wipeBuffer(string &$buffer): void
+    private static function wipeBuffer(?string &$buffer): void
     {
-        if ($buffer === '') {
+        if ($buffer === null || $buffer === '') {
             return;
         }
 
         sodium_memzero($buffer);
     }
 }
-
-/** Thrown when encryption fails. */
-class EncryptionException extends \Exception {}
-
-/** Thrown when encoding or decoding fails. */
-class EncodingException extends EncryptionException {}
-
-/** Thrown when the decoded payload is too short. */
-class NonceLengthException extends EncryptionException {}
-
-/** Thrown when authentication fails. */
-class DecryptionException extends EncryptionException {}
-
-/** Thrown when the supplied salt length is invalid. */
-class SaltLengthException extends EncryptionException {}

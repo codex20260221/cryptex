@@ -1,103 +1,127 @@
-<img src="https://michaelmawhinney.com/cryptex/logo.gif" width="300px">
+<img src="https://michaelmawhinney.com/cryptex/logo.gif" width="300" alt="Cryptex">
 
-# Cryptex: 2-way Authenticated Encryption Class
+# Cryptex: authenticated symmetric encryption
 
-Cryptex is a simple PHP class that performs 2-way authenticated encryption using XChaCha20 + Poly1305.
+Cryptex is a small PHP library for authenticated encryption using XChaCha20-Poly1305 and Argon2id from PHP's Sodium extension.
 
-Version 5.0.0 is a modernization and hardening release. It keeps the v4 public API, the v4 hex ciphertext format, and external salt semantics intact.
+Version 5 preserves the v4 public API, hex ciphertext format, and external-salt behavior. Existing v4-style ciphertext remains decryptable with the same key and salt.
 
+## Requirements
 
-# Requirements
+- PHP 8.3 or newer
+- `ext-sodium`
 
-* PHP 8.3 or newer
-* `ext-sodium`
+## Installation
 
-These requirements apply to v5.0.0 and later. Existing v4-style ciphertexts remain decryptable with the same API, but v5 does not introduce a new ciphertext envelope or transport encoding.
+Install the package with Composer:
 
+```console
+composer require michaelmawhinney/cryptex
+```
 
-# Installation
+Composer autoloading is recommended. If Composer is unavailable, `src/Cryptex.php` can still be required directly; it loads the public exception classes it needs.
 
-The preferred method of installation is with Packagist and Composer. The following command installs the package and adds it as a requirement to your project's composer.json:
+## Usage
 
-`composer require michaelmawhinney/cryptex`
-
-You can also download or clone the repo and include the `src/Cryptex.php` manually if you prefer.
-
-
-# Usage
-
-**Always store or transmit your `$key` and `$salt` values securely.**
+Generate random key material once and store it in a secret manager or another protected location. Generate and retain the external salt for each encrypted value because the salt is required for decryption.
 
 ```php
 <?php
+
+declare(strict_types=1);
+
 require 'vendor/autoload.php';
 
 use cryptex\Cryptex;
 
-try {
+$plaintext = "You're a certified prince.";
 
-    // Your private data and secret key
-    $plaintext = "You're a certified prince.";
-    $key = "1-2-3-4-5"; // same combination on my luggage
+// Generate once, store securely, and reuse for decryption.
+$key = sodium_bin2hex(
+    random_bytes(SODIUM_CRYPTO_AEAD_XCHACHA20POLY1305_IETF_KEYBYTES)
+);
 
-    // Generate a secure random salt value
-    $salt = Cryptex::generateSalt();
+// Store this salt with the ciphertext; it is not embedded in the output.
+$salt = Cryptex::generateSalt();
+$ciphertext = Cryptex::encrypt($plaintext, $key, $salt);
+$decrypted = Cryptex::decrypt($ciphertext, $key, $salt);
 
-    // Encrypt the plaintext using the preserved v4-style API and hex ciphertext output
-    $ciphertext = Cryptex::encrypt($plaintext, $key, $salt);
-    // example result: 
-    // 4c406399a8830dbf670832b298980280d71bfb8cba53246ed45c9b6e6fc753bc100da3d10d4bf0d406d8afd18b8a5a79f44e50424ed0970914490706418c5725258e
-
-    // Decrypt the ciphertext with the same v4-style API
-    $result = Cryptex::decrypt($ciphertext, $key, $salt);
-
-} catch (Exception $e) {
-
-    // There was some error during salt generation, encryption, authentication, or decryption
-    echo 'Caught exception: ' . $e->getMessage() . "\n";
-
+if (!hash_equals($plaintext, $decrypted)) {
+    throw new RuntimeException('Round trip failed');
 }
-
-// Verify with a timing attack safe string comparison
-if (hash_equals($plaintext, $result)) {
-
-    // Cryptex securely encrypted and decrypted the data
-    echo "Pass";
-
-} else {
-
-    // There was some failure that did not generate any exceptions
-    echo "Fail";
-
-}
-
-// The above example will output: Pass
 ```
 
-## Release Notes
+Do not generate a new key or salt when decrypting stored ciphertext. Retrieve the exact values used during encryption.
 
-See [CHANGELOG.md](CHANGELOG.md) for the v5.0.0 release summary and compatibility notes.
+### Random keys and human passphrases
 
+Cryptex processes the supplied `$key` through Argon2id whether it contains random key material or a human passphrase. High-entropy random key material is preferred when the application can generate and store it safely.
 
-# Testing
+Argon2id makes passphrase guessing more expensive, but it does not add entropy or make a weak passphrase strong. Password policy, passphrase quality, key rotation, and secure key storage are caller responsibilities. This release deliberately does not reject previously accepted key strings.
 
-The PHPUnit test class is in `tests/CryptexTest.php`.
+### Salt handling
 
-If you installed Cryptex with Composer, you can run the following commands in the top-level folder of this project:
+`Cryptex::generateSalt()` returns `SODIUM_CRYPTO_PWHASH_SALTBYTES` random bytes. The salt is not a secret, but it must be stored without alteration and supplied again for decryption. A newly generated salt should normally be retained alongside each ciphertext.
 
-`composer test`
+### Ciphertext format and compatibility
 
-`composer lint`
+`encrypt()` returns lowercase hexadecimal encoding of:
 
-The PHPUnit command used by `composer test` is:
+```text
+24-byte nonce || ciphertext || 16-byte authentication tag
+```
 
-`./vendor/bin/phpunit --configuration phpunit.xml.dist`
+The salt is external and is not included in the ciphertext. The minimum decoded payload is 40 bytes (80 hexadecimal characters), representing an empty plaintext. v4 and v5 use this same unversioned format. Authentication failure, including a modified nonce, ciphertext, tag, wrong key, or wrong salt, throws `cryptex\DecryptionException` and never returns plaintext.
 
+A future major version may introduce a versioned envelope or additional authenticated data (AAD), but neither is part of the current API.
 
-# Generating Documentation
+### Strict scalar types
 
-Cryptex uses phpDocumentor to automatically generate documentation whenever changes are made. The generated documentation is [available online here](https://michaelmawhinney.github.io/cryptex/). However if you want to generate the documentation locally, you can run the following command in the top-level folder of this project (requires docker):
+PHP decides scalar argument coercion from the file that calls a function, not from the file that declares it. Cryptex declares strict types internally, but callers that require strict scalar enforcement should also begin their PHP files with:
 
-`docker run --rm -v "$(pwd):/data" "phpdoc/phpdoc:3" -d src,tests -t docs`
+```php
+declare(strict_types=1);
+```
 
-If you want to use another method of running/installing phpdoc, refer to the [phpDocumentor documentation](https://www.phpdoc.org/).
+### Untrusted input and payload limits
+
+Cryptex rejects invalid salt lengths, malformed hex, and decoded payloads that are too short before running Argon2id. It intentionally does not impose an arbitrary maximum ciphertext size because doing so would change the existing API.
+
+Applications accepting untrusted input should enforce suitable HTTP request, field, and ciphertext-size limits before calling `decrypt()`. Choose limits from the application's maximum expected plaintext size and resource budget so oversized input cannot consume unbounded decoding memory or request time.
+
+## Exceptions
+
+The public exception classes are PSR-4 autoloadable under the `cryptex\` namespace:
+
+- `EncryptionException`
+- `EncodingException`
+- `NonceLengthException`
+- `DecryptionException`
+- `SaltLengthException`
+
+Their names and existing inheritance hierarchy remain compatible with v4 and v5.
+
+## Development checks
+
+Run the following commands from the repository root:
+
+```console
+composer validate --strict
+composer audit --locked
+composer lint
+composer cs-check
+composer stan
+composer test
+```
+
+## Release notes
+
+See [CHANGELOG.md](CHANGELOG.md) and [RELEASE_NOTES.md](RELEASE_NOTES.md) for release and compatibility notes.
+
+## Generating documentation
+
+The API documentation is generated with phpDocumentor and published at <https://michaelmawhinney.github.io/cryptex/>. To generate it locally with Docker:
+
+```console
+docker run --rm -v "$(pwd):/data" phpdoc/phpdoc:3 -d src,tests -t docs
+```
